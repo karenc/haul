@@ -73,11 +73,14 @@ Coin.prototype.hit = function(point) {
     return this.rect.containsPoint(point) ? this : null;
 };
 
-Coin.prototype.swap = function(coin) {
+Coin.prototype.swap = function(coin, completion) {
+    var multi = multiCompletion(2, completion);
     tickMgr.addAnimation(
-            new MoveAnimation(this, coin.rect.topLeft(), SWAP_DURATION));
+            new MoveAnimation(this, coin.rect.topLeft(), SWAP_DURATION),
+            multi);
     tickMgr.addAnimation(
-            new MoveAnimation(coin, this.rect.topLeft(), SWAP_DURATION));
+            new MoveAnimation(coin, this.rect.topLeft(), SWAP_DURATION),
+            multi);
 }
 
 function TickManager(redraw) {
@@ -86,8 +89,22 @@ function TickManager(redraw) {
     this.redraw = redraw;
 }
 
-TickManager.prototype.addAnimation = function(anim) {
-    this.animations.push(anim);
+function multiCompletion(count, completion) {
+    return function() {
+        if (--count == 0) {
+            completion();
+        }
+    };
+}
+
+TickManager.prototype.addAnimation = function(anim, completion) {
+    if (completion === undefined) {
+        completion = function() {};
+    }
+    this.animations.push({
+        anim: anim,
+        completion: completion
+    });
 
     // Nothing to do if the interval timer has been started
     if (this.interval !== null) {
@@ -114,8 +131,9 @@ TickManager.prototype.addAnimation = function(anim) {
 TickManager.prototype.tick = function(dt) {
     var deadAnimations = [];
     for (var i = 0; i < this.animations.length; i++) {
-        if (!this.animations[i].tick(dt)) {
+        if (!this.animations[i].anim.tick(dt)) {
             deadAnimations.push(i);
+            this.animations[i].completion();
         }
     }
 
@@ -154,6 +172,7 @@ function CoinType(image) {
 function Cursor(image, pos) {
     this.image = image;
     this.pos = pos;
+    this.allowClick = false;
 }
 
 Cursor.prototype.draw = function(ctx) {
@@ -181,11 +200,19 @@ Cursor.prototype.onmousemove = function(point) {
 };
 
 Cursor.prototype.onclick = function(gameLayer) {
+    if (!this.allowClick) {
+        return;
+    }
+
     var topCoin = gameLayer.hit(
             new Point(this.pos.x + COIN_SIZE, this.pos.y + COIN_SIZE));
     var bottomCoin = gameLayer.hit(
             new Point(this.pos.x + COIN_SIZE, this.pos.y + 2 * COIN_SIZE));
-    topCoin.swap(bottomCoin);
+    this.allowClick = false;
+    var this_ = this;
+    topCoin.swap(bottomCoin, function() {
+            this_.allowClick = true;
+        });
 };
 
 function onload(e) {
@@ -252,6 +279,9 @@ function onload(e) {
                 }
             }, false);
 
+    var multi = multiCompletion(8 * 8, function() {
+            cursor.allowClick = true;
+        });
     for (var i = 0; i < 8; i++) {
         for (var j = 0; j < 8; j++) {
             var coinType = CoinType.coinTypes[Math.floor(
@@ -260,7 +290,8 @@ function onload(e) {
                         GAME_AREA.y + GAME_AREA.height + COIN_SIZE * j), coinType);
             gameLayer.addGameObject(coin);
             tickMgr.addAnimation(new MoveAnimation(coin,
-                        new Point(coin.rect.x, coin.rect.y - GAME_AREA.height), 0.5));
+                        new Point(coin.rect.x, coin.rect.y - GAME_AREA.height), 0.5),
+                    multi);
         }
     }
     overlay.addGameObject(cursor);
