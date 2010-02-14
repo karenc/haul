@@ -31,8 +31,9 @@ Rect.prototype.topLeft = function() {
 var GAME_AREA = new Rect(45, 205, 360, 360);
 var COIN_SIZE = 45;
 var CURSOR_OFFSET = 4;
-var TICK_INTERVAL = Math.floor(1000 / 30); // 30 frames per second
+var TICK_INTERVAL = Math.floor(1000 / 30); // in seconds
 var SWAP_DURATION = 0.3; // in seconds
+var FRAME_DURATION = 0.05; // in seconds
 
 function Layer() {
     this.gameObjects = [];
@@ -40,6 +41,20 @@ function Layer() {
 
 Layer.prototype.addGameObject = function(obj) {
     this.gameObjects.push(obj);
+};
+
+Layer.prototype.removeObject = function(obj) {
+    var idx = this.gameObjects.indexOf(obj);
+    if (idx == -1) {
+        return;
+    }
+    this.gameObjects.splice(idx, 1);
+}
+
+Layer.prototype.removeObjects = function(objs) {
+    for (var i = 0; i < objs.length; i++) {
+        this.removeObject(objs[i]);
+    }
 };
 
 Layer.prototype.draw = function(ctx) {
@@ -61,10 +76,12 @@ Layer.prototype.hit = function(point) {
 function Coin(pos, coinType) {
     this.rect = new Rect(pos.x, pos.y, COIN_SIZE, COIN_SIZE);
     this.coinType = coinType;
+    this.frame = 0;
 }
 
 Coin.prototype.draw = function(ctx) {
-    ctx.drawImage(this.coinType.image, 0, 0, COIN_SIZE, COIN_SIZE,
+    ctx.drawImage(this.coinType.image,
+            this.frame * COIN_SIZE, 0, COIN_SIZE, COIN_SIZE,
             Math.floor(this.rect.x), Math.floor(this.rect.y),
             COIN_SIZE, COIN_SIZE);
 };
@@ -90,6 +107,9 @@ function TickManager(redraw) {
 }
 
 function multiCompletion(count, completion) {
+    if (completion === undefined) {
+        completion = function() {};
+    }
     return function() {
         if (--count == 0) {
             completion();
@@ -165,8 +185,61 @@ MoveAnimation.prototype.tick = function(dt) {
     return true;
 };
 
+function FrameAnimation(obj, duration) {
+    this.obj = obj;
+    this.duration = duration;
+    this.accum = 0;
+}
+
+FrameAnimation.prototype.tick = function(dt) {
+    this.accum += dt;
+    while (this.accum > FRAME_DURATION) {
+        this.obj.frame = (this.obj.frame + 1) % this.obj.coinType.nFrames;
+        this.accum -= FRAME_DURATION;
+    }
+
+    this.duration -= dt;
+    if (this.duration <= 0) {
+        this.obj.frame = 0;
+        return false;
+    }
+    return true;
+};
+
 function CoinType(image) {
     this.image = image;
+    this.nFrames = image.width / COIN_SIZE;
+}
+
+function findClears(gameLayer) {
+    // TODO
+    return [];
+}
+
+function spinCoins(coins, completion) {
+    var multi = multiCompletion(coins.length, completion);
+    for (var i = 0; i < coins.length; i++) {
+        tickMgr.addAnimation(new FrameAnimation(coins[i], FRAME_DURATION * 7), multi);
+    }
+}
+
+function applyGravity(gameLayer) {
+    // TODO
+
+    function gravityComplete() {
+        // Check for new clears that have been created
+        detectClears(gameLayer);
+    }
+}
+
+function detectClears(gameLayer) {
+    var clears = findClears(gameLayer);
+
+    function spinComplete() {
+        gameLayer.removeObjects(clears);
+        applyGravity(gameLayer);
+    }
+    spinCoins(clears, multiCompletion(clears.length, spinComplete));
 }
 
 function Cursor(image, pos) {
@@ -212,6 +285,8 @@ Cursor.prototype.onclick = function(gameLayer) {
     var this_ = this;
     topCoin.swap(bottomCoin, function() {
             this_.allowClick = true;
+            detectClears(gameLayer);
+            spinCoins([topCoin, bottomCoin]);
         });
 };
 
