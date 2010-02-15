@@ -34,6 +34,7 @@ var CURSOR_OFFSET = 4;
 var TICK_INTERVAL = Math.floor(1000 / 30); // in seconds
 var SWAP_DURATION = 0.3; // in seconds
 var FRAME_DURATION = 0.05; // in seconds
+var SCROLL_DURATION = 0.05; // in seconds
 
 function Layer() {
     this.gameObjects = [];
@@ -101,6 +102,17 @@ Coin.prototype.swap = function(coin, completion) {
     tickMgr.addAnimation(
             new MoveAnimation(coin, this.rect.topLeft(), SWAP_DURATION),
             multi);
+}
+
+function scrollInNewCoin(gameLayer, i, j, completion) {
+    var coinType = CoinType.coinTypes[Math.floor(
+            Math.random() * CoinType.coinTypes.length)];
+    var coin = new Coin(new Point(GAME_AREA.x + COIN_SIZE * i,
+                GAME_AREA.y + GAME_AREA.height + COIN_SIZE * j), coinType);
+    gameLayer.addGameObject(coin);
+    tickMgr.addAnimation(new MoveAnimation(coin,
+                new Point(coin.rect.x, coin.rect.y - GAME_AREA.height), 8 * SCROLL_DURATION),
+            completion);
 }
 
 function multiCompletion(count, completion) {
@@ -265,21 +277,67 @@ function spinCoins(coins, completion) {
     }
 }
 
-function applyGravity(gameLayer) {
-    // TODO
-
-    function gravityComplete() {
-        // Check for new clears that have been created
-        detectClears(gameLayer);
+function applyGravity(gameLayer, completion) {
+    function doColumn(x, moveUpFunc) {
+        var nHoles = 0;
+        var point = new Point(
+                GAME_AREA.x + x * COIN_SIZE, GAME_AREA.y);
+        for (; point.y < GAME_AREA.y + 8 * COIN_SIZE;
+                point.y += COIN_SIZE) {
+            var coin = gameLayer.hit(point);
+            if (coin === null) {
+                nHoles++;
+            } else {
+                if (nHoles > 0) {
+                    moveUpFunc(coin, nHoles);
+                }
+            }
+        }
+        return nHoles;
     }
+
+    function doColumns(moveUpFunc, columnFunc) {
+        for (var x = 0; x < 8; x++) {
+            var nHoles = doColumn(x, moveUpFunc);
+            columnFunc(x, nHoles);
+        }
+    }
+
+    // Count how many coins will move
+    var nMovedCoins = 0;
+    var nNewCoins = 0;
+    doColumns(function() {
+        nMovedCoins++;
+    }, function(x, nHoles) {
+        nNewCoins += nHoles;
+    });
+
+    // Move coins
+    var multi = multiCompletion(nMovedCoins + nNewCoins, function() {
+        // Check for new clears that have been created
+        detectClears(gameLayer, completion);
+    });
+    doColumns(function(coin, nHoles) {
+        var destination = new Point(coin.rect.x,
+            coin.rect.y - nHoles * COIN_SIZE);
+        tickMgr.addAnimation(new MoveAnimation(
+                coin, destination, nHoles * SCROLL_DURATION), multi);
+    }, function(x, nHoles) {
+        for (var y = 8 - nHoles; y < 8; y++) {
+            scrollInNewCoin(gameLayer, x, y, multi);
+        }
+    });
 }
 
-function detectClears(gameLayer) {
+function detectClears(gameLayer, completion) {
     var clears = findClears(gameLayer);
+    if (clears.length === 0) {
+        completion();
+    }
 
     function spinComplete() {
         gameLayer.removeObjects(clears);
-        applyGravity(gameLayer);
+        applyGravity(gameLayer, completion);
     }
     spinCoins(clears, spinComplete);
 }
@@ -326,8 +384,9 @@ Cursor.prototype.onclick = function(gameLayer) {
     this.allowClick = false;
     var this_ = this;
     topCoin.swap(bottomCoin, function() {
-            this_.allowClick = true;
-            detectClears(gameLayer);
+            detectClears(gameLayer, function() {
+                this_.allowClick = true;
+            });
         });
 };
 
@@ -396,18 +455,13 @@ function onload(e) {
             }, false);
 
     var multi = multiCompletion(8 * 8, function() {
-            cursor.allowClick = true;
+            detectClears(gameLayer, function() {
+                cursor.allowClick = true;
+            });
         });
     for (var i = 0; i < 8; i++) {
         for (var j = 0; j < 8; j++) {
-            var coinType = CoinType.coinTypes[Math.floor(
-                    Math.random() * CoinType.coinTypes.length)];
-            var coin = new Coin(new Point(GAME_AREA.x + COIN_SIZE * i,
-                        GAME_AREA.y + GAME_AREA.height + COIN_SIZE * j), coinType);
-            gameLayer.addGameObject(coin);
-            tickMgr.addAnimation(new MoveAnimation(coin,
-                        new Point(coin.rect.x, coin.rect.y - GAME_AREA.height), 0.5),
-                    multi);
+            scrollInNewCoin(gameLayer, i, j, multi);
         }
     }
     overlay.addGameObject(cursor);
