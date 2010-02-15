@@ -45,10 +45,9 @@ Layer.prototype.addGameObject = function(obj) {
 
 Layer.prototype.removeObject = function(obj) {
     var idx = this.gameObjects.indexOf(obj);
-    if (idx == -1) {
-        return;
+    if (idx !== -1) {
+        this.gameObjects.splice(idx, 1);
     }
-    this.gameObjects.splice(idx, 1);
 }
 
 Layer.prototype.removeObjects = function(objs) {
@@ -90,6 +89,10 @@ Coin.prototype.hit = function(point) {
     return this.rect.containsPoint(point) ? this : null;
 };
 
+Coin.prototype.isSameType = function(coin) {
+    return this.coinType.image === coin.coinType.image;
+}
+
 Coin.prototype.swap = function(coin, completion) {
     var multi = multiCompletion(2, completion);
     tickMgr.addAnimation(
@@ -100,21 +103,21 @@ Coin.prototype.swap = function(coin, completion) {
             multi);
 }
 
-function TickManager(redraw) {
-    this.animations = [];
-    this.interval = null;
-    this.redraw = redraw;
-}
-
 function multiCompletion(count, completion) {
     if (completion === undefined) {
         completion = function() {};
     }
     return function() {
-        if (--count == 0) {
+        if (--count === 0) {
             completion();
         }
     };
+}
+
+function TickManager(redraw) {
+    this.animations = [];
+    this.interval = null;
+    this.redraw = redraw;
 }
 
 TickManager.prototype.addAnimation = function(anim, completion) {
@@ -141,7 +144,7 @@ TickManager.prototype.addAnimation = function(anim, completion) {
             this_.lastTick = now;
 
             // Stop interval timer when there are no more animations
-            if (this_.animations.length == 0) {
+            if (this_.animations.length === 0) {
                 clearInterval(this_.interval);
                 this_.interval = null;
             }
@@ -212,8 +215,47 @@ function CoinType(image) {
 }
 
 function findClears(gameLayer) {
-    // TODO
-    return [];
+    function concatToSet(set, newElems) {
+        for (var i = 0; i < newElems.length; i++) {
+            if (set.indexOf(newElems[i]) === -1) {
+                set.push(newElems[i]);
+            }
+        }
+    }
+
+    function findSameCoins(coin, direction) {
+        var nextCoin;
+        var coins = [];
+        var point = coin.rect.topLeft();
+        for (var i = 0; i < 8; i++) {
+            nextCoin = gameLayer.hit(point);
+            if (nextCoin === null || !nextCoin.isSameType(coin)) {
+                break;
+            }
+            coins.push(nextCoin);
+            point.x += COIN_SIZE * direction.x;
+            point.y += COIN_SIZE * direction.y;
+        }
+        return coins;
+    }
+
+    var horizontal = new Point(1, 0);
+    var vertical = new Point(0, 1);
+    var clearedCoins = [];
+    for (var y = 0; y < 8; y++) {
+        for (var x = 0; x < 8; x++) {
+            var coin = gameLayer.hit(new Point(GAME_AREA.x + COIN_SIZE * x, GAME_AREA.y + COIN_SIZE * y));
+            var hSameCoins = findSameCoins(coin, horizontal);
+            var vSameCoins = findSameCoins(coin, vertical);
+            if (hSameCoins.length >= 3) {
+                concatToSet(clearedCoins, hSameCoins);
+            }
+            if (vSameCoins.length >= 3) {
+                concatToSet(clearedCoins, vSameCoins);
+            }
+        }
+    }
+    return clearedCoins;
 }
 
 function spinCoins(coins, completion) {
@@ -239,7 +281,7 @@ function detectClears(gameLayer) {
         gameLayer.removeObjects(clears);
         applyGravity(gameLayer);
     }
-    spinCoins(clears, multiCompletion(clears.length, spinComplete));
+    spinCoins(clears, spinComplete);
 }
 
 function Cursor(image, pos) {
@@ -286,7 +328,6 @@ Cursor.prototype.onclick = function(gameLayer) {
     topCoin.swap(bottomCoin, function() {
             this_.allowClick = true;
             detectClears(gameLayer);
-            spinCoins([topCoin, bottomCoin]);
         });
 };
 
