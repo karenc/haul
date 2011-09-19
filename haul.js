@@ -328,4 +328,4 @@ function onload(e) {
 
     redraw();
 }
-document.addEventListener('load', onload, false);
+document.addEventListener('load', onload, true);
